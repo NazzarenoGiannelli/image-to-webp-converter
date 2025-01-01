@@ -24,7 +24,7 @@ class WebPConverterGUI:
         self.root.title("Image to WebP Converter")
         self.root.geometry("1024x768")  # Larger default size
         self.root.minsize(800, 600)     # Set minimum window size
-        self.root.protocol('WM_DELETE_WINDOW', self.minimize_to_tray)
+        self.root.protocol('WM_DELETE_WINDOW', self.on_closing)
         
         # Set application icon
         if getattr(sys, 'frozen', False):
@@ -433,20 +433,32 @@ class WebPConverterGUI:
         self.root.lift()
         self.root.focus_force()
         
-    def minimize_to_tray(self):
-        """Minimize the application to system tray"""
+    def hide_window(self):
+        """Hide the main window."""
         self.root.withdraw()
-        if not self.tray_icon.visible:
-            self.tray_icon_thread = threading.Thread(target=self.tray_icon.run)
-            self.tray_icon_thread.daemon = True
-            self.tray_icon_thread.start()
-    
-    def quit_app(self, _=None):
-        """Quit the application"""
-        if self.tray_icon.visible:
-            self.tray_icon.stop()
-        self.root.quit()
-    
+        self.create_tray_icon()
+
+    def quit_app(self, icon=None):
+        """Properly quit the application."""
+        try:
+            # Stop the tray icon if it exists
+            if hasattr(self, 'icon') and self.icon:
+                self.icon.stop()
+            
+            # Destroy all windows and quit
+            if self.root:
+                self.root.quit()
+                self.root.destroy()
+        except:
+            pass
+        finally:
+            # Ensure the application exits
+            sys.exit(0)
+
+    def on_closing(self):
+        """Handle window closing event."""
+        self.quit_app()
+
     def handle_drop(self, event):
         """Handle dropped files"""
         files = self.parse_dropped_files(event.data)
