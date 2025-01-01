@@ -172,6 +172,51 @@ python image_to_webp.py images/ --profile high_quality --delete-originals
 python image_to_webp.py images/ -q 90 --preserve-timestamps
 ```
 
+## Windows Executable
+
+A standalone Windows executable is available, which doesn't require Python installation.
+
+### Building the Executable
+
+1. **Install Build Dependencies**:
+   ```bash
+   pip install cx_Freeze
+   ```
+
+2. **Build the Executable**:
+   ```bash
+   python setup.py build
+   ```
+   This will create a `build` directory containing the executable and all required dependencies.
+
+3. **Executable Location**:
+   After building, find the executable at:
+   ```
+   build/exe.win-amd64-3.10/ImageToWebPConverter.exe
+   ```
+
+### Features of the Windows Build
+- **Standalone Operation**: No Python installation required
+- **System Integration**:
+  - Desktop shortcut creation
+  - System tray support
+  - File association capabilities
+- **Resource Management**:
+  - Bundled with all necessary dependencies
+  - Optimized for Windows environment
+  - Visual C++ runtime included
+
+### Distribution
+To distribute the application:
+1. Copy the entire contents of the `build/exe.win-amd64-3.10` directory
+2. Share the folder with end users
+3. Users can run the application directly by executing `ImageToWebPConverter.exe`
+
+### Notes
+- The executable includes all necessary DLLs and dependencies
+- Windows Defender or other antivirus software might need to verify the executable
+- Requires Windows 7 or later
+
 ## Configuration
 
 The application stores configuration in `~/.png_to_webp/config.json`, including:

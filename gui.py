@@ -27,10 +27,20 @@ class WebPConverterGUI:
         self.root.protocol('WM_DELETE_WINDOW', self.minimize_to_tray)
         
         # Set application icon
-        icon_path = os.path.join(os.path.dirname(__file__), "assets", "logo-square.ico")
+        if getattr(sys, 'frozen', False):
+            # Running in a bundle
+            base_path = os.path.dirname(sys.executable)
+        else:
+            # Running in normal Python environment
+            base_path = os.path.dirname(__file__)
+        
+        icon_path = os.path.join(base_path, "assets", "logo-square.ico")
         if os.path.exists(icon_path):
-            self.root.iconbitmap(icon_path)
-            self.icon_photo = Image.open(icon_path)
+            try:
+                self.root.iconbitmap(icon_path)
+                self.icon_photo = Image.open(icon_path)
+            except Exception as e:
+                logging.error(f"Failed to load icon: {e}")
         
         # Configure dark theme colors
         self.COLORS = {
@@ -402,7 +412,14 @@ class WebPConverterGUI:
             pystray.MenuItem("Exit", self.quit_app)
         )
         
-        icon_path = os.path.join(os.path.dirname(__file__), "assets", "logo-square.ico")
+        if getattr(sys, 'frozen', False):
+            # Running in a bundle
+            base_path = os.path.dirname(sys.executable)
+        else:
+            # Running in normal Python environment
+            base_path = os.path.dirname(__file__)
+        
+        icon_path = os.path.join(base_path, "assets", "logo-square.ico")
         self.tray_icon = pystray.Icon(
             "WebP Converter",
             Image.open(icon_path),
