@@ -20,7 +20,9 @@ logging.basicConfig(
 )
 logger = logging.getLogger(__name__)
 
-SUPPORTED_FORMATS = {'.png', '.jpg', '.jpeg'}
+# Supported input formats
+SUPPORTED_FORMATS = {'.png', '.jpg', '.jpeg', '.gif', '.bmp', '.tiff'}
+
 MIN_FREE_SPACE_MB = 500  # Minimum required free space in MB
 
 class ConversionError(Exception):
@@ -108,7 +110,7 @@ def generate_unique_filename(output_path: str) -> str:
         counter += 1
     return f"{base}({counter}){ext}"
 
-def preserve_timestamps(source_path: str, target_path: str) -> None:
+def copy_timestamps(source_path: str, target_path: str) -> None:
     """
     Copy timestamp metadata from source file to target file
     """
@@ -168,7 +170,7 @@ def convert_to_webp(input_path: str, output_path: Optional[str] = None,
                 
                 # Preserve timestamps if requested
                 if preserve_timestamps:
-                    preserve_timestamps(input_path, output_path)
+                    copy_timestamps(input_path, output_path)
                     
                 return True, input_path, output_path
                 
@@ -182,7 +184,7 @@ def convert_to_webp(input_path: str, output_path: Optional[str] = None,
 
 def process_directory(directory_path: str, quality: int = 80, recursive: bool = True,
                      output_dir: Optional[str] = None, preserve_originals: bool = True,
-                     preserve_timestamps: bool = True) -> None:
+                     copy_timestamps: bool = True) -> None:
     """
     Convert all supported image files in a directory to WebP format.
     
@@ -192,87 +194,85 @@ def process_directory(directory_path: str, quality: int = 80, recursive: bool = 
         recursive: Whether to process subdirectories
         output_dir: Custom output directory path
         preserve_originals: Whether to keep original files
-        preserve_timestamps: Whether to preserve original file timestamps
+        copy_timestamps: Whether to copy original file timestamps
     """
     try:
-        directory = Path(directory_path)
-        
-        # Validate input directory
-        if not directory.is_dir():
-            raise ValueError(f"Not a directory: {directory_path}")
-        
-        # Get all files with supported extensions
+        directory_path = os.path.abspath(directory_path)
+        if not os.path.isdir(directory_path):
+            raise ConversionError(f"Not a directory: {directory_path}")
+            
+        # Create output directory if specified
+        if output_dir:
+            output_dir = os.path.abspath(output_dir)
+            os.makedirs(output_dir, exist_ok=True)
+            
+        # Collect all image files
+        image_files = []
         if recursive:
-            files = [f for f in directory.rglob("*") if f.suffix.lower() in SUPPORTED_FORMATS]
+            for root, _, files in os.walk(directory_path):
+                for file in files:
+                    if any(file.lower().endswith(ext) for ext in SUPPORTED_FORMATS):
+                        image_files.append(os.path.join(root, file))
         else:
-            files = [f for f in directory.glob("*") if f.suffix.lower() in SUPPORTED_FORMATS]
-        
-        if not files:
+            image_files = [
+                os.path.join(directory_path, f) for f in os.listdir(directory_path)
+                if os.path.isfile(os.path.join(directory_path, f)) and
+                any(f.lower().endswith(ext) for ext in SUPPORTED_FORMATS)
+            ]
+            
+        if not image_files:
             logger.warning(f"No supported image files found in {directory_path}")
             return
-
-        # Calculate total input size
-        total_size_mb = sum(estimate_output_size(str(f)) for f in files)
-        
-        # Check disk space
-        if output_dir:
-            if not check_disk_space(output_dir, total_size_mb + MIN_FREE_SPACE_MB):
-                raise ConversionError(
-                    f"Insufficient disk space in output directory. "
-                    f"Need at least {total_size_mb + MIN_FREE_SPACE_MB}MB free"
-                )
-        elif not check_disk_space(directory_path, total_size_mb + MIN_FREE_SPACE_MB):
-            raise ConversionError(
-                f"Insufficient disk space. Need at least {total_size_mb + MIN_FREE_SPACE_MB}MB free"
-            )
-
-        # Create progress bar
-        pbar = tqdm(total=len(files), desc="Converting images", unit="file")
-        
-        # Process files in parallel with memory-optimized batch size
-        max_workers = min(32, os.cpu_count() + 4)  # Limit max workers
-        with ThreadPoolExecutor(max_workers=max_workers) as executor:
-            # Submit all conversion tasks
-            future_to_file = {}
-            for f in files:
+            
+        # Process files in parallel
+        with ThreadPoolExecutor() as executor:
+            futures = []
+            for input_path in image_files:
                 if output_dir:
-                    # Maintain relative directory structure in output directory
-                    rel_path = f.relative_to(directory)
-                    new_path = Path(output_dir) / rel_path
-                    output_path = str(new_path.with_suffix('.webp'))
+                    # Maintain directory structure in output
+                    rel_path = os.path.relpath(input_path, directory_path)
+                    output_path = os.path.join(output_dir, rel_path)
+                    output_path = str(Path(output_path).with_suffix('.webp'))
                 else:
                     output_path = None
                     
                 future = executor.submit(
-                    convert_to_webp, 
-                    str(f), 
+                    convert_to_webp,
+                    input_path,
                     output_path,
                     quality,
-                    preserve_timestamps
+                    copy_timestamps,
+                    False  # lossless
                 )
-                future_to_file[future] = f
+                futures.append((input_path, future))
             
-            # Process results as they complete
-            for future in as_completed(future_to_file):
-                success, input_path, result = future.result()
-                if success:
-                    logger.info(f"✓ Converted: {input_path} -> {result}")
-                    # Delete original if not preserving
-                    if not preserve_originals:
-                        try:
-                            os.remove(input_path)
-                            logger.info(f"  Deleted original: {input_path}")
-                        except Exception as e:
-                            logger.error(f"  Failed to delete original {input_path}: {e}")
-                else:
-                    logger.error(f"✗ Failed to convert {input_path}: {result}")
-                pbar.update(1)
-        
-        pbar.close()
-        
+            # Process results with progress bar
+            successful = 0
+            failed = 0
+            with tqdm(total=len(futures), desc="Converting images", unit="file") as pbar:
+                for input_path, future in futures:
+                    try:
+                        success, _, result = future.result()
+                        if success:
+                            successful += 1
+                            if not preserve_originals:
+                                try:
+                                    os.remove(input_path)
+                                except Exception as e:
+                                    logger.error(f"Failed to delete original file {input_path}: {e}")
+                        else:
+                            failed += 1
+                            logger.error(f"Failed to convert {input_path}: {result}")
+                    except Exception as e:
+                        failed += 1
+                        logger.error(f"Error processing {input_path}: {e}")
+                    finally:
+                        pbar.update(1)
+            
+            logger.info(f"Conversion complete. Successful: {successful}, Failed: {failed}")
+            
     except Exception as e:
-        logger.error(f"Error processing directory: {e}")
-        raise
+        logger.error(f"Error processing directory {directory_path}: {e}")
 
 def main():
     # Initialize configuration

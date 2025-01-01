@@ -1,6 +1,6 @@
 # Image to WebP Converter
 
-A powerful Python script to convert PNG, JPG, and JPEG images to WebP format with advanced features including profile management, parallel processing, and resource optimization.
+A powerful Python application to convert PNG, JPG, and JPEG images to WebP format, featuring both a modern GUI and command-line interface. Includes advanced features like profile management, parallel processing, and resource optimization.
 
 ## Features
 
@@ -20,51 +20,97 @@ A powerful Python script to convert PNG, JPG, and JPEG images to WebP format wit
 - **Error Handling**: Comprehensive error checking and reporting
 - **Configuration**: Save and reuse preferred settings
 
+## GUI Features
+- **Modern Dark Theme**:
+  - Sleek dark background
+  - Clean, minimal design
+  - Responsive layout
+- **User-Friendly Interface**:
+  - Drag-and-drop support
+  - System tray integration
+  - Live quality adjustment
+  - Collapsible settings panel
+
 ## Requirements
 - Python 3.x
 - Required packages (install via requirements.txt):
-  - Pillow
-  - tqdm
-  - psutil
+  ```
+  # Core dependencies
+  Pillow
+  psutil
+  tqdm  # For CLI progress bars
+  
+  # GUI dependencies
+  tkinterdnd2  # For drag-and-drop
+  pystray  # For system tray
+  ```
 
 ## Installation
 ```bash
 pip install -r requirements.txt
 ```
 
-## Basic Usage
+## Using the GUI
 
-### Convert a Single File
+1. **Launch the Application**:
+   ```bash
+   python gui.py
+   ```
+
+2. **Convert Images**:
+   - Drag and drop files/folders into the drop zone
+   - Or click to select files using the file browser
+   - Watch real-time conversion progress
+
+3. **Customize Settings**:
+   - Quality (0-100 slider)
+   - Lossless compression toggle
+   - Original file preservation
+   - Timestamp preservation
+   - Recursive directory processing
+
+4. **Profile Management**:
+   - Select from preset profiles
+   - Save custom profiles
+   - Set default profile
+   - Quick-load last used settings
+
+5. **System Tray Features**:
+   - Minimize to tray
+   - Quick access menu
+   - Background operation
+
+## Command Line Usage
+
+### Basic Usage
+
 ```bash
+# Convert a single file
 python image_to_webp.py input.png
-```
 
-### Convert a Directory
-```bash
+# Convert a directory
 python image_to_webp.py /path/to/directory
-```
 
-### Convert Directory Recursively
-```bash
+# Convert directory recursively
 python image_to_webp.py /path/to/directory -r
 ```
 
-## Advanced Options
+### Advanced Options
 
-### Quality and Compression
+#### Quality and Compression
 - `-q`, `--quality`: WebP quality (0-100)
 - `--lossless`: Use lossless compression
 
-### Output Control
+#### Output Control
 - `-o`, `--output`: Output file or directory path
 - `-r`, `--recursive`: Process subdirectories recursively
 
-### File Handling
+#### File Handling
 - `--keep-originals`: Keep original files (default)
 - `--delete-originals`: Delete original files after conversion
 - `--no-preserve-timestamps`: Don't preserve original file timestamps
 
-### Profile Management
+#### Profile Management
 - `--profile NAME`: Use a specific conversion profile
 - `--save-profile NAME`: Save current settings as a new profile
 - `--list-profiles`: List all available profiles
@@ -128,7 +174,7 @@ python image_to_webp.py images/ -q 90 --preserve-timestamps
 
 ## Configuration
 
-The script stores configuration in `~/.png_to_webp/config.json`, including:
+The application stores configuration in `~/.png_to_webp/config.json`, including:
 - Custom profiles
 - Last used settings
 - Default profile preference
@@ -136,7 +182,7 @@ The script stores configuration in `~/.png_to_webp/config.json`, including:
 
 ## Error Handling
 
-The script includes comprehensive error checking for:
+The application includes comprehensive error checking for:
 - Corrupted images
 - Insufficient disk space
 - Invalid paths
@@ -145,8 +191,16 @@ The script includes comprehensive error checking for:
 
 ## Notes
 
-- The script automatically checks for sufficient disk space before conversion
+- Automatically checks for sufficient disk space before conversion
 - Memory usage is optimized for large batches of files
-- Progress bar shows real-time conversion status
+- Progress tracking in both GUI and CLI
 - Detailed logging helps track any issues
 - Original directory structure is maintained when using custom output directory
+
+## Contributing
+
+Contributions are welcome! Please feel free to submit a Pull Request.
+
+## License
+
+This project is licensed under the MIT License - see the LICENSE file for details.

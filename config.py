@@ -4,7 +4,7 @@ from pathlib import Path
 from typing import Dict, Any, Optional
 
 # Default configuration path
-CONFIG_DIR = os.path.join(str(Path.home()), '.png_to_webp')
+CONFIG_DIR = os.path.join(str(Path.home()), '.image_to_webp')
 CONFIG_FILE = os.path.join(CONFIG_DIR, 'config.json')
 
 # Preset profiles for different use cases
