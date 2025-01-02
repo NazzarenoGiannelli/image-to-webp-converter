@@ -82,42 +82,50 @@ pip install -r requirements.txt
    - Quick access menu
    - Background operation
 
-## Command Line Usage
+## Command-Line Usage
 
-### Basic Usage
-
+Basic usage:
 ```bash
-# Convert a single file
-python image_to_webp.py input.png
-
-# Convert a directory
-python image_to_webp.py /path/to/directory
-
-# Convert directory recursively
-python image_to_webp.py /path/to/directory -r
+python image_to_webp.py input_path [options]
 ```
 
-### Advanced Options
+Available options:
+```
+Core Options:
+  -q, --quality VALUE      Set WebP quality (0-100)
+  -o, --output PATH       Specify output file/directory
+  -r, --recursive         Process subdirectories
+  --lossless             Use lossless compression
+  --prefix TEXT          Add prefix to output filenames
+  --suffix TEXT          Add suffix to output filenames
 
-#### Quality and Compression
-- `-q`, `--quality`: WebP quality (0-100)
-- `--lossless`: Use lossless compression
+File Handling:
+  --keep-originals       Keep original files
+  --delete-originals     Delete original files after conversion
+  --no-preserve-timestamps  Don't preserve original timestamps
 
-#### Output Control
-- `-o`, `--output`: Output file or directory path
-- `-r`, `--recursive`: Process subdirectories recursively
+Profile Management:
+  --profile NAME         Use a specific profile
+  --save-profile NAME    Save current settings as new profile
+  --list-profiles       Show all available profiles
+  --set-default-profile NAME  Set default profile
+  --use-last            Use last used settings
+```
 
-#### File Handling
-- `--keep-originals`: Keep original files (default)
-- `--delete-originals`: Delete original files after conversion
-- `--no-preserve-timestamps`: Don't preserve original file timestamps
+Examples:
+```bash
+# Convert single file with quality 85
+python image_to_webp.py image.jpg -q 85
 
-#### Profile Management
-- `--profile NAME`: Use a specific conversion profile
-- `--save-profile NAME`: Save current settings as a new profile
-- `--list-profiles`: List all available profiles
-- `--set-default-profile NAME`: Set the default profile
-- `--use-last`: Use last used settings
+# Convert directory recursively, add prefix and suffix
+python image_to_webp.py ./photos -r --prefix "2023_" --suffix "_compressed"
+
+# Convert using a profile and custom output directory
+python image_to_webp.py ./photos --profile "high_quality" -o ./webp_output
+
+# Convert and delete originals after successful conversion
+python image_to_webp.py ./photos --delete-originals
+```
 
 ## Preset Profiles
 
