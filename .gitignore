@@ -46,6 +46,10 @@ htmlcov/
 # *.jpg
 # *.jpeg
 # *.gif
+*.afdesign~lock~
+*.afdesign~lock~.tmp
+*.afdesign~lock~.tmp~lock~
+*.afdesign~lock~.tmp~lock~.tmp
 
 # Local development settings
 .env.local
