@@ -46,7 +46,7 @@ class WebPConverterGUI:
         self.COLORS = {
             'bg': '#282828',
             'fg': '#ffffff',
-            'accent': '#ff5f00',  # Vibrant orange
+            'accent': '#473CF3',  # Vibrant orange
             'accent_dark': '#cc4c00',  # Darker orange for hover states
             'gray_accent': '#404040',  # Keep some elements gray
             'highlight': '#505050',
