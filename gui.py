@@ -13,6 +13,7 @@ from config import Config, PRESET_PROFILES
 import image_to_webp
 import logging
 import tkinterdnd2 as tkdnd
+from concurrent.futures import ThreadPoolExecutor
 
 class WebPConverterGUI:
     def __init__(self):
@@ -167,9 +168,19 @@ class WebPConverterGUI:
         # Queue for communication between threads
         self.queue = queue.Queue()
         
-        # Track active conversions
+        # Create thread pool for conversions
+        self.thread_pool = ThreadPoolExecutor(max_workers=4)
+        
+        # Track active conversions and progress
         self.active_conversions = 0
         self.conversion_lock = threading.Lock()
+        self.total_files = 0
+        self.processed_files = 0
+        self.pending_files = []
+        self.is_converting = False
+        self.stop_requested = False
+        
+        self.preview_after_id = None  # For debouncing preview updates
         
         self.setup_ui()
         self.setup_tray()
@@ -265,32 +276,10 @@ class WebPConverterGUI:
         # Configure log text widget with dark theme
         self.log_text.configure(**text_opts)
 
-        # Right Column: Settings and Progress (now in a scrollable frame)
-        # Create a canvas with scrollbar for settings
-        canvas = tk.Canvas(right_column)
-        scrollbar = ttk.Scrollbar(right_column, orient="vertical", command=canvas.yview)
-        scrollable_frame = ttk.Frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw", width=canvas.winfo_reqwidth())
-        
-        # Configure canvas with dark theme
-        canvas.configure(**canvas_opts)
-
-        # Configure canvas to expand with window
-        canvas.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N, tk.S))
-        scrollbar.grid(row=0, column=1, sticky=(tk.N, tk.S))
-        canvas.configure(yscrollcommand=scrollbar.set)
-        right_column.columnconfigure(0, weight=1)
-
-        # Settings frame inside scrollable frame
-        settings_frame = ttk.LabelFrame(scrollable_frame, text="Settings", padding="10")
+        # Right Column: Settings and Progress
+        settings_frame = ttk.LabelFrame(right_column, text="Settings", padding="10")
         settings_frame.grid(row=0, column=0, sticky=(tk.W, tk.E, tk.N), pady=(0, 5))
-        scrollable_frame.columnconfigure(0, weight=1)
+        right_column.columnconfigure(0, weight=1)
 
         # Profile selection with better spacing
         profile_frame = ttk.Frame(settings_frame)
@@ -304,18 +293,9 @@ class WebPConverterGUI:
         self.profile_combo.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
         self.profile_combo.bind('<<ComboboxSelected>>', self.on_profile_changed)
 
-        # Profile management buttons in a horizontal frame with wrapping
-        profile_buttons = ttk.Frame(settings_frame)
-        profile_buttons.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
-        profile_buttons.columnconfigure((0, 1, 2), weight=1)
-
-        ttk.Button(profile_buttons, text="Save Profile", command=self.save_profile).grid(row=0, column=0, padx=2, sticky=(tk.W, tk.E))
-        ttk.Button(profile_buttons, text="Set Default", command=self.set_default_profile).grid(row=0, column=1, padx=2, sticky=(tk.W, tk.E))
-        ttk.Button(profile_buttons, text="Use Last", command=self.use_last_settings).grid(row=0, column=2, padx=2, sticky=(tk.W, tk.E))
-
         # Quality setting with label
         quality_frame = ttk.Frame(settings_frame)
-        quality_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        quality_frame.grid(row=1, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         quality_frame.columnconfigure(1, weight=1)
 
         ttk.Label(quality_frame, text="Quality:").grid(row=0, column=0, sticky=tk.W)
@@ -335,13 +315,30 @@ class WebPConverterGUI:
 
         # Output directory
         output_frame = ttk.Frame(settings_frame)
-        output_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        output_frame.grid(row=2, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
         output_frame.columnconfigure(1, weight=1)
 
         ttk.Label(output_frame, text="Output:").grid(row=0, column=0, sticky=tk.W)
         self.output_var = tk.StringVar()
         ttk.Entry(output_frame, textvariable=self.output_var).grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
         ttk.Button(output_frame, text="Browse", command=self.select_output_dir).grid(row=0, column=2)
+
+        # File naming options
+        naming_frame = ttk.Frame(settings_frame)
+        naming_frame.grid(row=3, column=0, sticky=(tk.W, tk.E), pady=(0, 10))
+        naming_frame.columnconfigure(1, weight=1)
+
+        ttk.Label(naming_frame, text="Prefix:").grid(row=0, column=0, sticky=tk.W)
+        self.prefix_var = tk.StringVar()
+        prefix_entry = ttk.Entry(naming_frame, textvariable=self.prefix_var)
+        prefix_entry.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        prefix_entry.bind('<KeyRelease>', self.on_name_option_changed)
+
+        ttk.Label(naming_frame, text="Suffix:").grid(row=1, column=0, sticky=tk.W)
+        self.suffix_var = tk.StringVar()
+        suffix_entry = ttk.Entry(naming_frame, textvariable=self.suffix_var)
+        suffix_entry.grid(row=1, column=1, sticky=(tk.W, tk.E), padx=5, pady=2)
+        suffix_entry.bind('<KeyRelease>', self.on_name_option_changed)
 
         # Checkboxes in a grid
         options_frame = ttk.Frame(settings_frame)
@@ -352,29 +349,42 @@ class WebPConverterGUI:
         ttk.Checkbutton(
             options_frame,
             text="Lossless",
-            variable=self.lossless_var
+            variable=self.lossless_var,
+            command=lambda: self.on_setting_changed("Lossless", self.lossless_var.get())
         ).grid(row=0, column=0, sticky=tk.W)
 
         self.keep_original_var = tk.BooleanVar(value=PRESET_PROFILES[self.profile_var.get()]['preserve_originals'])
         ttk.Checkbutton(
             options_frame,
             text="Keep Originals",
-            variable=self.keep_original_var
+            variable=self.keep_original_var,
+            command=lambda: self.on_setting_changed("Keep Originals", self.keep_original_var.get())
         ).grid(row=0, column=1, sticky=tk.W)
 
         self.preserve_timestamps_var = tk.BooleanVar(value=PRESET_PROFILES[self.profile_var.get()]['preserve_timestamps'])
         ttk.Checkbutton(
             options_frame,
             text="Preserve Timestamps",
-            variable=self.preserve_timestamps_var
+            variable=self.preserve_timestamps_var,
+            command=lambda: self.on_setting_changed("Preserve Timestamps", self.preserve_timestamps_var.get())
         ).grid(row=1, column=0, sticky=tk.W)
 
         self.recursive_var = tk.BooleanVar(value=True)
         ttk.Checkbutton(
             options_frame,
             text="Process Subdirectories",
-            variable=self.recursive_var
+            variable=self.recursive_var,
+            command=lambda: self.on_setting_changed("Process Subdirectories", self.recursive_var.get())
         ).grid(row=1, column=1, sticky=tk.W)
+
+        # Profile management buttons at the bottom
+        profile_buttons = ttk.Frame(settings_frame)
+        profile_buttons.grid(row=5, column=0, sticky=(tk.W, tk.E), pady=(10, 0))
+        profile_buttons.columnconfigure((0, 1, 2), weight=1)
+
+        ttk.Button(profile_buttons, text="Save Profile", command=self.save_profile).grid(row=0, column=0, padx=2, sticky=(tk.W, tk.E))
+        ttk.Button(profile_buttons, text="Set Default", command=self.set_default_profile).grid(row=0, column=1, padx=2, sticky=(tk.W, tk.E))
+        ttk.Button(profile_buttons, text="Use Last", command=self.use_last_settings).grid(row=0, column=2, padx=2, sticky=(tk.W, tk.E))
 
         # Progress frame at the bottom of right column
         progress_frame = ttk.LabelFrame(right_column, text="Progress", padding="10")
@@ -386,25 +396,31 @@ class WebPConverterGUI:
             variable=self.progress_var,
             maximum=100
         )
-        self.progress_bar.grid(row=0, column=0, sticky=(tk.W, tk.E))
+        self.progress_bar.grid(row=0, column=0, sticky=(tk.W, tk.E), pady=(0, 5))
+
+        # Control buttons frame
+        control_frame = ttk.Frame(progress_frame)
+        control_frame.grid(row=1, column=0, sticky=(tk.W, tk.E))
+        control_frame.columnconfigure((0, 1), weight=1)
+
+        self.start_button = ttk.Button(
+            control_frame,
+            text="Start Conversion",
+            command=self.start_conversion,
+            state=tk.DISABLED
+        )
+        self.start_button.grid(row=0, column=0, padx=2, sticky=(tk.W, tk.E))
+
+        self.stop_button = ttk.Button(
+            control_frame,
+            text="Stop",
+            command=self.stop_conversion,
+            state=tk.DISABLED
+        )
+        self.stop_button.grid(row=0, column=1, padx=2, sticky=(tk.W, tk.E))
+
         progress_frame.columnconfigure(0, weight=1)
-
-        # Update canvas scroll region when window is resized
-        def _on_frame_configure(event):
-            canvas.configure(scrollregion=canvas.bbox("all"))
-            # Update canvas width to match scrollable frame
-            canvas_width = right_column.winfo_width() - scrollbar.winfo_width() - 5
-            canvas.itemconfig(canvas.find_withtag("all")[0], width=max(canvas_width, 200))
-
-        scrollable_frame.bind("<Configure>", _on_frame_configure)
-
-        # Update canvas width when window is resized
-        def _on_canvas_configure(event):
-            canvas_width = event.width - 5
-            canvas.itemconfig(canvas.find_withtag("all")[0], width=canvas_width)
-
-        canvas.bind("<Configure>", _on_canvas_configure)
-
+    
     def setup_tray(self):
         """Set up system tray icon and menu"""
         menu = (
@@ -441,6 +457,10 @@ class WebPConverterGUI:
     def quit_app(self, icon=None):
         """Properly quit the application."""
         try:
+            # Shutdown thread pool
+            if hasattr(self, 'thread_pool'):
+                self.thread_pool.shutdown(wait=False)
+            
             # Stop the tray icon if it exists
             if hasattr(self, 'icon') and self.icon:
                 self.icon.stop()
@@ -497,6 +517,15 @@ class WebPConverterGUI:
             self.show_error("Error", "No files selected")
             return
 
+        # Reset progress tracking and clear pending files
+        with self.conversion_lock:
+            self.total_files = 0
+            self.processed_files = 0
+            self.active_conversions = 0
+            self.pending_files = []
+            self.is_converting = False
+            self.stop_requested = False
+
         # Get current settings
         try:
             profile = self.profile_var.get()
@@ -504,183 +533,281 @@ class WebPConverterGUI:
                 'quality': self.quality_var.get(),
                 'lossless': self.lossless_var.get(),
                 'preserve_timestamps': self.preserve_timestamps_var.get(),
-                'preserve_originals': self.keep_original_var.get()
+                'preserve_originals': self.keep_original_var.get(),
+                'recursive': self.recursive_var.get(),
+                'output_dir': self.output_var.get(),
+                'prefix': self.prefix_var.get(),
+                'suffix': self.suffix_var.get()
             }
             
             # Save as last used settings
             self.save_last_settings(settings)
             
-            # Get output directory
-            output_dir = self.output_var.get()
-            if output_dir and not os.path.exists(output_dir):
-                try:
-                    os.makedirs(output_dir)
-                except Exception as e:
-                    self.show_error("Error", f"Failed to create output directory: {e}")
-                    return
+            # Clear previous log entries with a separator
+            self.queue.put(('log', "\n" + "-"*50 + "\n"))
+            self.queue.put(('log', "Processing new files..."))
             
-            # Initialize conversion tracking
-            with self.conversion_lock:
-                self.active_conversions = 0
-                total_converted = {'success': 0, 'error': 0}
-            
-            # Process each input
+            # Count total files and collect file paths
             for file_path in files:
                 if os.path.isfile(file_path):
                     ext = os.path.splitext(file_path)[1].lower()
                     if ext in image_to_webp.SUPPORTED_FORMATS:
-                        # For single files
-                        if output_dir:
-                            # Create output path preserving relative structure
-                            rel_path = os.path.basename(file_path)
-                            output_path = os.path.join(output_dir, rel_path)
-                            output_path = str(Path(output_path).with_suffix('.webp'))
-                        else:
-                            output_path = None
-                            
-                        # Start conversion in a thread
                         with self.conversion_lock:
-                            self.active_conversions += 1
-                        thread = threading.Thread(
-                            target=self.convert_files_thread,
-                            args=([file_path], settings, output_path, total_converted)
-                        )
-                        thread.daemon = True
-                        thread.start()
+                            self.total_files += 1
+                            # Prepare output path
+                            if settings['output_dir']:
+                                input_filename = os.path.basename(file_path)
+                                output_filename = self.get_output_filename(
+                                    input_filename, 
+                                    settings['prefix'], 
+                                    settings['suffix']
+                                )
+                                output_path = os.path.join(settings['output_dir'], output_filename)
+                            else:
+                                input_filename = os.path.basename(file_path)
+                                output_filename = self.get_output_filename(
+                                    input_filename,
+                                    settings['prefix'],
+                                    settings['suffix']
+                                )
+                                output_path = str(Path(os.path.dirname(file_path)) / output_filename)
+                            self.pending_files.append((file_path, output_path))
                     else:
                         self.queue.put(('log', f"Skipping unsupported file: {file_path}"))
                         
-                elif os.path.isdir(file_path):
-                    # For directories
-                    if output_dir:
-                        # Create corresponding output subdirectory
-                        rel_path = os.path.basename(file_path)
-                        dir_output = os.path.join(output_dir, rel_path)
-                    else:
-                        dir_output = None
-                        
-                    # Start directory processing in a thread
-                    with self.conversion_lock:
-                        self.active_conversions += 1
-                    thread = threading.Thread(
-                        target=self.process_directory_thread,
-                        args=(file_path, settings, dir_output, total_converted)
-                    )
-                    thread.daemon = True
-                    thread.start()
-                    
-            # Log settings being used
+                elif os.path.isdir(file_path) and self.recursive_var.get():
+                    self.queue.put(('log', f"Scanning directory: {file_path}"))
+                    for root, _, filenames in os.walk(file_path):
+                        for filename in filenames:
+                            if os.path.splitext(filename)[1].lower() in image_to_webp.SUPPORTED_FORMATS:
+                                file_path = os.path.join(root, filename)
+                                with self.conversion_lock:
+                                    self.total_files += 1
+                                    # Prepare output path
+                                    if settings['output_dir']:
+                                        rel_path = os.path.relpath(file_path, os.path.dirname(file_path))
+                                        output_path = os.path.join(settings['output_dir'], rel_path)
+                                        output_path = str(Path(output_path).with_suffix('.webp'))
+                                    else:
+                                        output_path = None
+                                    self.pending_files.append((file_path, output_path))
+                else:
+                    self.queue.put(('log', f"Skipping {file_path}: {'not a supported file or directory' if not os.path.isdir(file_path) else 'recursive processing disabled'}"))
+            
+            # Log settings and status
+            self.queue.put(('log', f"\nFound {self.total_files} files to convert"))
             self.queue.put(('log', f"Using profile: {profile}"))
-            self.queue.put(('log', f"Settings: Quality={settings['quality']}, "
-                                  f"Lossless={settings['lossless']}, "
-                                  f"Preserve Timestamps={settings['preserve_timestamps']}, "
-                                  f"Keep Originals={settings['preserve_originals']}"))
-            if output_dir:
-                self.queue.put(('log', f"Output directory: {output_dir}"))
+            self.queue.put(('log', f"Current settings:"))
+            self.queue.put(('log', f"  - Quality: {settings['quality']}"))
+            self.queue.put(('log', f"  - Lossless: {settings['lossless']}"))
+            self.queue.put(('log', f"  - Preserve Timestamps: {settings['preserve_timestamps']}"))
+            self.queue.put(('log', f"  - Keep Originals: {settings['preserve_originals']}"))
+            self.queue.put(('log', f"  - Process Subdirectories: {settings['recursive']}"))
+            self.queue.put(('log', f"  - Output directory: {settings['output_dir'] or 'Same as input (replace)'}\n"))
+            
+            # Enable start button if files were found
+            if self.total_files > 0:
+                self.start_button.configure(state=tk.NORMAL)
+                self.queue.put(('log', "Ready to start conversion. Click 'Start Conversion' to begin."))
+                self.queue.put(('log', "You can adjust settings before starting the conversion."))
+            else:
+                self.queue.put(('log', "No supported files found for conversion."))
             
         except Exception as e:
-            self.show_error("Error", f"Failed to start conversion: {str(e)}")
+            self.show_error("Error", f"Failed to process files: {str(e)}")
 
-    def process_directory_thread(self, directory: str, settings: dict, output_dir: Optional[str] = None, total_converted: dict = None):
-        """Process a directory in a separate thread"""
-        try:
-            # Use the process_directory function from image_to_webp
-            image_to_webp.process_directory(
-                directory_path=directory,
-                quality=settings['quality'],
-                recursive=True,
-                output_dir=output_dir,
-                preserve_originals=settings['preserve_originals'],
-                preserve_timestamps=settings['preserve_timestamps']
+    def start_conversion(self):
+        """Start the conversion process"""
+        if not self.pending_files or self.is_converting:
+            return
+
+        # Get current settings at start time
+        settings = {
+            'quality': self.quality_var.get(),
+            'lossless': self.lossless_var.get(),
+            'preserve_timestamps': self.preserve_timestamps_var.get(),
+            'preserve_originals': self.keep_original_var.get(),
+            'recursive': self.recursive_var.get(),
+            'output_dir': self.output_var.get(),
+            'prefix': self.prefix_var.get(),
+            'suffix': self.suffix_var.get()
+        }
+
+        # Log final settings before starting
+        self.queue.put(('log', "\nStarting conversion with final settings:"))
+        self.queue.put(('log', f"  - Quality: {settings['quality']}"))
+        self.queue.put(('log', f"  - Lossless: {settings['lossless']}"))
+        self.queue.put(('log', f"  - Preserve Timestamps: {settings['preserve_timestamps']}"))
+        self.queue.put(('log', f"  - Keep Originals: {settings['preserve_originals']}"))
+        self.queue.put(('log', f"  - Process Subdirectories: {settings['recursive']}"))
+        output_display = settings['output_dir'] if settings['output_dir'] else 'Same as input (replace)'
+        self.queue.put(('log', f"  - Output directory: {os.path.basename(output_display) if settings['output_dir'] else output_display}"))
+        if settings['prefix'] or settings['suffix']:
+            example = self.get_output_filename("example.jpg", settings['prefix'], settings['suffix'])
+            self.queue.put(('log', f"  - Filename pattern: {example}\n"))
+        else:
+            self.queue.put(('log', ""))
+
+        # Update UI state
+        self.is_converting = True
+        self.stop_requested = False
+        self.start_button.configure(state=tk.DISABLED)
+        self.stop_button.configure(state=tk.NORMAL)
+
+        # Initialize conversion tracking
+        total_converted = {'success': 0, 'error': 0}
+
+        # Process each file
+        for file_path, output_path in self.pending_files:
+            if self.stop_requested:
+                break
+
+            # Skip files in subdirectories if recursive is disabled
+            if not settings['recursive'] and os.path.dirname(file_path) != os.path.dirname(self.pending_files[0][0]):
+                self.queue.put(('log', f"Skipping {os.path.basename(file_path)}: in subdirectory"))
+                with self.conversion_lock:
+                    self.processed_files += 1
+                    progress = (self.processed_files / self.total_files) * 100
+                    self.queue.put(('progress', progress))
+                continue
+
+            # Start conversion in thread pool
+            with self.conversion_lock:
+                self.active_conversions += 1
+            self.thread_pool.submit(
+                self.convert_files_thread,
+                [file_path],
+                settings,
+                output_path,
+                total_converted
             )
-            with self.conversion_lock:
-                total_converted['success'] += 1
-        except Exception as e:
-            with self.conversion_lock:
-                total_converted['error'] += 1
-            self.queue.put(('log', f"Error processing directory {directory}: {e}"))
-        finally:
-            with self.conversion_lock:
-                self.active_conversions -= 1
-                if self.active_conversions == 0:
-                    # Show final summary
-                    summary = f"Conversion completed!\n"
-                    summary += f"Successfully converted: {total_converted['success']} items\n"
-                    if total_converted['error'] > 0:
-                        summary += f"Failed to convert: {total_converted['error']} items"
-                        self.queue.put(('show_warning', ("Conversion Complete", summary)))
-                    else:
-                        self.queue.put(('show_info', ("Conversion Complete", summary)))
+
+    def stop_conversion(self):
+        """Stop the conversion process"""
+        if not self.is_converting:
+            return
+
+        self.stop_requested = True
+        self.queue.put(('log', "Stopping conversion... Please wait for current operations to complete."))
+        self.stop_button.configure(state=tk.DISABLED)
 
     def convert_files_thread(self, files: List[str], settings: dict, output_path: Optional[str] = None, total_converted: dict = None):
         """Convert files in a separate thread"""
-        total_files = len(files)
-        converted_count = 0
-        error_count = 0
-        
+        if self.stop_requested:
+            with self.conversion_lock:
+                self.active_conversions -= 1
+                if self.active_conversions == 0:
+                    self.finish_conversion(total_converted)
+            return
+
         try:
-            for i, file_path in enumerate(files, 1):
+            for file_path in files:
+                if self.stop_requested:
+                    break
+
                 try:
+                    # Generate output path with prefix/suffix if not provided
+                    if not output_path:
+                        input_filename = os.path.basename(file_path)
+                        output_filename = self.get_output_filename(
+                            input_filename,
+                            settings.get('prefix', ''),
+                            settings.get('suffix', '')
+                        )
+                        output_path = str(Path(os.path.dirname(file_path)) / output_filename)
+
                     success, input_path, result = image_to_webp.convert_to_webp(
                         file_path,
                         output_path=output_path,
                         quality=settings['quality'],
                         preserve_timestamps=settings['preserve_timestamps'],
-                        lossless=settings['lossless']
+                        lossless=settings['lossless'],
+                        prefix=settings.get('prefix', ''),
+                        suffix=settings.get('suffix', '')
                     )
+                    
+                    with self.conversion_lock:
+                        self.processed_files += 1
+                        progress = (self.processed_files / self.total_files) * 100
+                        self.queue.put(('progress', progress))
+                    
+                    # Get relative paths for cleaner logging
+                    input_name = os.path.basename(input_path)
+                    result_name = os.path.basename(result) if result else None
+
                     if success:
-                        converted_count += 1
                         with self.conversion_lock:
                             total_converted['success'] += 1
-                        self.queue.put(('log', f"✓ Converted: {input_path} -> {result}"))
+                        size_before = os.path.getsize(input_path)
+                        size_after = os.path.getsize(result)
+                        reduction = ((size_before - size_after) / size_before) * 100
+                        
+                        self.queue.put(('log', f" {input_name} → {result_name} ({reduction:.1f}% smaller)"))
+                        
                         if not settings['preserve_originals']:
                             try:
                                 os.remove(input_path)
-                                self.queue.put(('log', f"  Deleted original: {input_path}"))
+                                self.queue.put(('log', f"  Original deleted"))
                             except Exception as e:
-                                self.queue.put(('log', f"  Failed to delete original {input_path}: {e}"))
+                                self.queue.put(('log', f"  Failed to delete original: {str(e)}"))
                     else:
-                        error_count += 1
                         with self.conversion_lock:
                             total_converted['error'] += 1
-                        self.queue.put(('log', f"✗ Failed to convert {input_path}: {result}"))
+                        self.queue.put(('log', f" {input_name}: {result}"))
                 
                 except Exception as e:
-                    error_count += 1
                     with self.conversion_lock:
                         total_converted['error'] += 1
-                    self.queue.put(('log', f"✗ Error processing {file_path}: {e}"))
-                
-                # Update progress
-                progress = (i / total_files) * 100
-                self.queue.put(('progress', progress))
+                        self.processed_files += 1
+                        progress = (self.processed_files / self.total_files) * 100
+                        self.queue.put(('progress', progress))
+                    self.queue.put(('log', f" {os.path.basename(file_path)}: {str(e)}"))
             
         except Exception as e:
-            self.queue.put(('log', f"Critical error during conversion: {e}"))
+            self.queue.put(('log', f"Critical error during conversion: {str(e)}"))
             self.show_error("Error", f"Critical error during conversion: {str(e)}")
         finally:
-            self.queue.put(('progress', 0))
             with self.conversion_lock:
                 self.active_conversions -= 1
                 if self.active_conversions == 0:
-                    # Show final summary
-                    summary = f"Conversion completed!\n"
-                    summary += f"Successfully converted: {total_converted['success']} items\n"
-                    if total_converted['error'] > 0:
-                        summary += f"Failed to convert: {total_converted['error']} items"
-                        self.queue.put(('show_warning', ("Conversion Complete", summary)))
-                    else:
-                        self.queue.put(('show_info', ("Conversion Complete", summary)))
+                    self.finish_conversion(total_converted)
 
+    def finish_conversion(self, total_converted: dict):
+        """Clean up after conversion is complete"""
+        self.queue.put(('progress', 0))
+        self.is_converting = False
+        self.stop_requested = False
+        self.start_button.configure(state=tk.NORMAL if self.total_files > self.processed_files else tk.DISABLED)
+        self.stop_button.configure(state=tk.DISABLED)
+
+        # Show final summary
+        if self.processed_files > 0:
+            summary = f"Conversion {'stopped' if self.stop_requested else 'completed'}!\n"
+            summary += f"Successfully converted: {total_converted['success']} items\n"
+            if total_converted['error'] > 0:
+                summary += f"Failed to convert: {total_converted['error']} items"
+                self.queue.put(('show_warning', ("Conversion Status", summary)))
+            else:
+                self.queue.put(('show_info', ("Conversion Status", summary)))
+
+        # Clear pending files if all were processed
+        if self.processed_files >= self.total_files:
+            self.pending_files = []
+    
     def on_quality_changed(self, *args):
         """Update quality label when slider moves"""
         self.quality_label.config(text=str(self.quality_var.get()))
+        if hasattr(self, 'pending_files') and self.pending_files:
+            self.queue.put(('log', f"Quality setting changed to {self.quality_var.get()}"))
 
     def on_profile_changed(self, event=None):
         """Update settings when profile is changed"""
         profile = self.profile_var.get()
         if profile in PRESET_PROFILES:
-            settings = PRESET_PROFILES[profile]
+            settings = PRESET_PROFILES[profile].copy()
+            # Add default values for new settings not in presets
+            settings.setdefault('recursive', True)
+            settings.setdefault('output_dir', '')
         else:
             settings = self.config.config['custom_profiles'][profile]
         
@@ -690,8 +817,21 @@ class WebPConverterGUI:
         self.lossless_var.set(settings['lossless'])
         self.preserve_timestamps_var.set(settings['preserve_timestamps'])
         self.keep_original_var.set(settings['preserve_originals'])
+        if 'recursive' in settings:
+            self.recursive_var.set(settings['recursive'])
+        if 'output_dir' in settings:
+            self.output_var.set(settings['output_dir'])
         
-        self.queue.put(('log', f"Applied {profile} profile settings"))
+        # Log changes if files are pending
+        if hasattr(self, 'pending_files') and self.pending_files:
+            self.queue.put(('log', f"\nProfile changed to '{profile}'"))
+            self.queue.put(('log', f"New settings: Quality={settings['quality']}, "
+                                f"Lossless={settings['lossless']}, "
+                                f"Preserve Timestamps={settings['preserve_timestamps']}, "
+                                f"Keep Originals={settings['preserve_originals']}, "
+                                f"Recursive={settings.get('recursive', True)}, "
+                                f"Output directory={settings.get('output_dir', '')}"))
+            self.queue.put(('log', "Ready to start conversion with new settings."))
     
     def select_output_dir(self):
         """Open dialog to select output directory"""
@@ -700,8 +840,14 @@ class WebPConverterGUI:
             mustexist=False
         )
         if directory:
+            old_dir = self.output_var.get()
             self.output_var.set(directory)
-            
+            if hasattr(self, 'pending_files') and self.pending_files:
+                if old_dir:
+                    self.queue.put(('log', f"Output directory changed from '{old_dir}' to '{directory}'"))
+                else:
+                    self.queue.put(('log', f"Output directory set to '{directory}'"))
+    
     def update_profile_list(self):
         """Update the profile dropdown with all available profiles"""
         profiles = list(PRESET_PROFILES.keys()) + list(self.config.config['custom_profiles'].keys())
@@ -719,7 +865,9 @@ class WebPConverterGUI:
                 'quality': self.quality_var.get(),
                 'lossless': self.lossless_var.get(),
                 'preserve_timestamps': self.preserve_timestamps_var.get(),
-                'preserve_originals': self.keep_original_var.get()
+                'preserve_originals': self.keep_original_var.get(),
+                'recursive': self.recursive_var.get(),
+                'output_dir': self.output_var.get()
             }
             
             self.config.config['custom_profiles'][name] = settings
@@ -731,8 +879,29 @@ class WebPConverterGUI:
     def set_default_profile(self):
         """Set current profile as default"""
         profile = self.profile_var.get()
-        self.config.set_default_profile(profile)
-        self.queue.put(('log', f"Set default profile to: {profile}"))
+        # Save current settings before setting as default
+        settings = {
+            'quality': self.quality_var.get(),
+            'lossless': self.lossless_var.get(),
+            'preserve_timestamps': self.preserve_timestamps_var.get(),
+            'preserve_originals': self.keep_original_var.get(),
+            'recursive': self.recursive_var.get(),
+            'output_dir': self.output_var.get()
+        }
+        if profile in PRESET_PROFILES:
+            # For preset profiles, save current settings as a custom profile
+            custom_name = f"{profile}_custom"
+            self.config.config['custom_profiles'][custom_name] = settings
+            self.config.set_default_profile(custom_name)
+            self.update_profile_list()
+            self.profile_var.set(custom_name)
+            self.queue.put(('log', f"Created custom profile '{custom_name}' from '{profile}' and set as default"))
+        else:
+            # Update existing custom profile with current settings
+            self.config.config['custom_profiles'][profile] = settings
+            self.config.set_default_profile(profile)
+            self.queue.put(('log', f"Updated and set default profile to: {profile}"))
+        self.config.save_config()
         
     def use_last_settings(self):
         """Load last used settings"""
@@ -742,15 +911,54 @@ class WebPConverterGUI:
             self.lossless_var.set(last_settings['lossless'])
             self.preserve_timestamps_var.set(last_settings['preserve_timestamps'])
             self.keep_original_var.set(last_settings['preserve_originals'])
+            if 'recursive' in last_settings:
+                self.recursive_var.set(last_settings['recursive'])
+            if 'output_dir' in last_settings:
+                self.output_var.set(last_settings['output_dir'])
             self.queue.put(('log', "Loaded last used settings"))
         else:
             self.show_error("Error", "No last used settings found")
 
     def save_last_settings(self, settings: dict):
         """Save current settings as last used"""
-        self.config.config['last_used_settings'] = settings.copy()
+        full_settings = settings.copy()
+        full_settings.update({
+            'recursive': self.recursive_var.get(),
+            'output_dir': self.output_var.get()
+        })
+        self.config.config['last_used_settings'] = full_settings
         self.config.save_config()
+    
+    def on_setting_changed(self, setting_name: str, value: bool):
+        """Handle changes to boolean settings"""
+        if hasattr(self, 'pending_files') and self.pending_files:
+            self.queue.put(('log', f"{setting_name} {'enabled' if value else 'disabled'}"))
+    
+    def on_name_option_changed(self, event=None):
+        """Handle changes to filename prefix/suffix with debounce"""
+        if not hasattr(self, 'pending_files') or not self.pending_files:
+            return
+            
+        # Cancel any pending preview update
+        if self.preview_after_id:
+            self.root.after_cancel(self.preview_after_id)
+        
+        # Schedule new preview update after 500ms
+        self.preview_after_id = self.root.after(500, self.update_filename_preview)
+    
+    def update_filename_preview(self):
+        """Update the filename preview in the log"""
+        prefix = self.prefix_var.get()
+        suffix = self.suffix_var.get()
+        if prefix or suffix:
+            example = self.get_output_filename("example.jpg", prefix, suffix)
+            self.queue.put(('log', f"Filename pattern: {example}"))
 
+    def get_output_filename(self, input_filename: str, prefix: str = "", suffix: str = "") -> str:
+        """Generate output filename with prefix and suffix"""
+        name, _ = os.path.splitext(input_filename)
+        return f"{prefix}{name}{suffix}.webp"
+    
     def process_queue(self):
         """Process messages from the queue"""
         try:

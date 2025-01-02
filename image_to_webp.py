@@ -96,19 +96,37 @@ def estimate_output_size(input_path: str) -> float:
     except Exception:
         return 1.0  # Return 1MB as a safe default
 
-def generate_unique_filename(output_path: str) -> str:
+def generate_unique_filename(output_path: str, prefix: str = "", suffix: str = "") -> str:
     """
     Generate a unique filename if the output path already exists.
-    Adds a number suffix before the extension (e.g., image(1).webp)
-    """
-    if not os.path.exists(output_path):
-        return output_path
+    Can add optional prefix and suffix to the filename.
     
-    base, ext = os.path.splitext(output_path)
+    Args:
+        output_path: Base output path
+        prefix: Optional prefix to add before filename
+        suffix: Optional suffix to add before extension
+    
+    Returns:
+        str: Unique filename with optional prefix/suffix
+    """
+    directory = os.path.dirname(output_path)
+    filename = os.path.basename(output_path)
+    base, ext = os.path.splitext(filename)
+    
+    # Apply prefix and suffix
+    if prefix or suffix:
+        base = f"{prefix}{base}{suffix}"
+    
+    # First try with just prefix/suffix
+    new_path = os.path.join(directory, f"{base}{ext}")
+    if not os.path.exists(new_path):
+        return new_path
+    
+    # If exists, add counter
     counter = 1
-    while os.path.exists(f"{base}({counter}){ext}"):
+    while os.path.exists(os.path.join(directory, f"{base}({counter}){ext}")):
         counter += 1
-    return f"{base}({counter}){ext}"
+    return os.path.join(directory, f"{base}({counter}){ext}")
 
 def copy_timestamps(source_path: str, target_path: str) -> None:
     """
@@ -122,7 +140,7 @@ def copy_timestamps(source_path: str, target_path: str) -> None:
 
 def convert_to_webp(input_path: str, output_path: Optional[str] = None, 
                    quality: int = 80, preserve_timestamps: bool = True,
-                   lossless: bool = False) -> Tuple[bool, str, Union[str, Exception]]:
+                   lossless: bool = False, prefix: str = "", suffix: str = "") -> Tuple[bool, str, Union[str, Exception]]:
     """
     Convert an image to WebP format while preserving alpha channel.
     
@@ -132,6 +150,8 @@ def convert_to_webp(input_path: str, output_path: Optional[str] = None,
         quality: Quality of WebP image (0-100), default 80
         preserve_timestamps: Whether to preserve original file timestamps
         lossless: Whether to use lossless compression
+        prefix: Optional prefix to add to output filename
+        suffix: Optional suffix to add to output filename before extension
     
     Returns:
         Tuple[bool, str, Union[str, Exception]]: (success, input_path, output_path/error)
@@ -162,8 +182,8 @@ def convert_to_webp(input_path: str, output_path: Optional[str] = None,
                 # Ensure output directory exists
                 os.makedirs(os.path.dirname(output_path), exist_ok=True)
                 
-                # Handle duplicate files
-                output_path = generate_unique_filename(output_path)
+                # Handle duplicate files with prefix/suffix
+                output_path = generate_unique_filename(output_path, prefix, suffix)
                 
                 # Convert and save as WebP with memory optimization
                 img.save(output_path, 'WEBP', quality=quality, lossless=lossless, optimize=True)
@@ -184,7 +204,7 @@ def convert_to_webp(input_path: str, output_path: Optional[str] = None,
 
 def process_directory(directory_path: str, quality: int = 80, recursive: bool = True,
                      output_dir: Optional[str] = None, preserve_originals: bool = True,
-                     copy_timestamps: bool = True) -> None:
+                     copy_timestamps: bool = True, prefix: str = "", suffix: str = "") -> None:
     """
     Convert all supported image files in a directory to WebP format.
     
@@ -195,6 +215,8 @@ def process_directory(directory_path: str, quality: int = 80, recursive: bool = 
         output_dir: Custom output directory path
         preserve_originals: Whether to keep original files
         copy_timestamps: Whether to copy original file timestamps
+        prefix: Optional prefix to add to output filenames
+        suffix: Optional suffix to add to output filenames before extension
     """
     try:
         directory_path = os.path.abspath(directory_path)
@@ -242,7 +264,9 @@ def process_directory(directory_path: str, quality: int = 80, recursive: bool = 
                     output_path,
                     quality,
                     copy_timestamps,
-                    False  # lossless
+                    False,  # lossless
+                    prefix,
+                    suffix
                 )
                 futures.append((input_path, future))
             
@@ -302,6 +326,8 @@ def main():
                         help='Use lossless compression')
     parser.add_argument('--use-last', action='store_true',
                         help='Use last used settings')
+    parser.add_argument('--prefix', help='Add prefix to output filename')
+    parser.add_argument('--suffix', help='Add suffix to output filename before extension')
     
     args = parser.parse_args()
     
@@ -377,7 +403,9 @@ def main():
                 args.output, 
                 settings['quality'],
                 settings['preserve_timestamps'],
-                settings['lossless']
+                settings['lossless'],
+                args.prefix,
+                args.suffix
             )
             if success:
                 logger.info(f"Successfully converted {args.input} to {result}")
@@ -396,7 +424,9 @@ def main():
                 args.recursive,
                 args.output,
                 settings['preserve_originals'],
-                settings['preserve_timestamps']
+                settings['preserve_timestamps'],
+                args.prefix,
+                args.suffix
             )
         else:
             raise ValueError(f"Error: {args.input} is not a valid file or directory")
