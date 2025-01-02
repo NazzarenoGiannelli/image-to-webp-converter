@@ -14,24 +14,28 @@ PRESET_PROFILES = {
         'lossless': True,
         'preserve_timestamps': True,
         'preserve_originals': True,
+        'recursive': False,
     },
     'balanced': {
         'quality': 80,
         'lossless': False,
         'preserve_timestamps': True,
         'preserve_originals': True,
+        'recursive': False,
     },
     'web_optimized': {
         'quality': 75,
         'lossless': False,
         'preserve_timestamps': False,
         'preserve_originals': True,
+        'recursive': False,
     },
     'space_saver': {
         'quality': 60,
         'lossless': False,
         'preserve_timestamps': False,
         'preserve_originals': False,
+        'recursive': False,
     }
 }
 

@@ -300,18 +300,11 @@ class WebPConverterGUI:
 
         ttk.Label(quality_frame, text="Quality:").grid(row=0, column=0, sticky=tk.W)
         self.quality_var = tk.IntVar(value=PRESET_PROFILES[self.profile_var.get()]['quality'])
-        self.quality_label = ttk.Label(quality_frame, text=str(self.quality_var.get()))
-        self.quality_label.grid(row=0, column=2, sticky=tk.E, padx=5)
-
-        self.quality_scale = ttk.Scale(
-            quality_frame,
-            from_=0,
-            to=100,
-            variable=self.quality_var,
-            orient=tk.HORIZONTAL,
-            command=self.on_quality_changed
-        )
-        self.quality_scale.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
+        quality_scale = ttk.Scale(quality_frame, from_=1, to=100, orient=tk.HORIZONTAL,
+                                variable=self.quality_var)
+        quality_scale.grid(row=0, column=1, sticky=(tk.W, tk.E), padx=5)
+        quality_scale.bind('<ButtonRelease-1>', self.on_quality_changed)
+        ttk.Label(quality_frame, textvariable=self.quality_var).grid(row=0, column=2, padx=(5, 0))
 
         # Output directory
         output_frame = ttk.Frame(settings_frame)
@@ -346,36 +339,18 @@ class WebPConverterGUI:
         options_frame.columnconfigure((0, 1), weight=1)
 
         self.lossless_var = tk.BooleanVar(value=PRESET_PROFILES[self.profile_var.get()]['lossless'])
-        ttk.Checkbutton(
-            options_frame,
-            text="Lossless",
-            variable=self.lossless_var,
-            command=lambda: self.on_setting_changed("Lossless", self.lossless_var.get())
-        ).grid(row=0, column=0, sticky=tk.W)
-
-        self.keep_original_var = tk.BooleanVar(value=PRESET_PROFILES[self.profile_var.get()]['preserve_originals'])
-        ttk.Checkbutton(
-            options_frame,
-            text="Keep Originals",
-            variable=self.keep_original_var,
-            command=lambda: self.on_setting_changed("Keep Originals", self.keep_original_var.get())
-        ).grid(row=0, column=1, sticky=tk.W)
-
         self.preserve_timestamps_var = tk.BooleanVar(value=PRESET_PROFILES[self.profile_var.get()]['preserve_timestamps'])
-        ttk.Checkbutton(
-            options_frame,
-            text="Preserve Timestamps",
-            variable=self.preserve_timestamps_var,
-            command=lambda: self.on_setting_changed("Preserve Timestamps", self.preserve_timestamps_var.get())
-        ).grid(row=1, column=0, sticky=tk.W)
+        self.keep_original_var = tk.BooleanVar(value=PRESET_PROFILES[self.profile_var.get()]['preserve_originals'])
+        self.recursive_var = tk.BooleanVar(value=False)
 
-        self.recursive_var = tk.BooleanVar(value=True)
-        ttk.Checkbutton(
-            options_frame,
-            text="Process Subdirectories",
-            variable=self.recursive_var,
-            command=lambda: self.on_setting_changed("Process Subdirectories", self.recursive_var.get())
-        ).grid(row=1, column=1, sticky=tk.W)
+        ttk.Checkbutton(options_frame, text="Lossless", variable=self.lossless_var,
+                       command=lambda: self.on_setting_changed("Lossless", self.lossless_var.get())).grid(row=0, column=0, sticky=tk.W)
+        ttk.Checkbutton(options_frame, text="Preserve Timestamps", variable=self.preserve_timestamps_var,
+                       command=lambda: self.on_setting_changed("Preserve Timestamps", self.preserve_timestamps_var.get())).grid(row=0, column=1, sticky=tk.W)
+        ttk.Checkbutton(options_frame, text="Keep Originals", variable=self.keep_original_var,
+                       command=lambda: self.on_setting_changed("Keep Originals", self.keep_original_var.get())).grid(row=1, column=0, sticky=tk.W)
+        ttk.Checkbutton(options_frame, text="Process Subdirectories", variable=self.recursive_var,
+                       command=lambda: self.on_setting_changed("Process Subdirectories", self.recursive_var.get())).grid(row=1, column=1, sticky=tk.W)
 
         # Profile management buttons at the bottom
         profile_buttons = ttk.Frame(settings_frame)
@@ -796,24 +771,18 @@ class WebPConverterGUI:
     
     def on_quality_changed(self, *args):
         """Update quality label when slider moves"""
-        self.quality_label.config(text=str(self.quality_var.get()))
-        if hasattr(self, 'pending_files') and self.pending_files:
-            self.queue.put(('log', f"Quality setting changed to {self.quality_var.get()}"))
-
+        self.queue.put(('log', f"Quality set to: {self.quality_var.get()}"))
+    
     def on_profile_changed(self, event=None):
         """Update settings when profile is changed"""
         profile = self.profile_var.get()
         if profile in PRESET_PROFILES:
-            settings = PRESET_PROFILES[profile].copy()
-            # Add default values for new settings not in presets
-            settings.setdefault('recursive', True)
-            settings.setdefault('output_dir', '')
+            settings = PRESET_PROFILES[profile]
         else:
             settings = self.config.config['custom_profiles'][profile]
         
         # Update all settings
         self.quality_var.set(settings['quality'])
-        self.quality_label.config(text=str(settings['quality']))
         self.lossless_var.set(settings['lossless'])
         self.preserve_timestamps_var.set(settings['preserve_timestamps'])
         self.keep_original_var.set(settings['preserve_originals'])
@@ -822,31 +791,21 @@ class WebPConverterGUI:
         if 'output_dir' in settings:
             self.output_var.set(settings['output_dir'])
         
-        # Log changes if files are pending
-        if hasattr(self, 'pending_files') and self.pending_files:
-            self.queue.put(('log', f"\nProfile changed to '{profile}'"))
-            self.queue.put(('log', f"New settings: Quality={settings['quality']}, "
-                                f"Lossless={settings['lossless']}, "
-                                f"Preserve Timestamps={settings['preserve_timestamps']}, "
-                                f"Keep Originals={settings['preserve_originals']}, "
-                                f"Recursive={settings.get('recursive', True)}, "
-                                f"Output directory={settings.get('output_dir', '')}"))
-            self.queue.put(('log', "Ready to start conversion with new settings."))
+        # Log changes
+        self.queue.put(('log', f"\nProfile changed to: {profile}"))
+        self.queue.put(('log', f"New settings: Quality={settings['quality']}, "
+                            f"Lossless={settings['lossless']}, "
+                            f"Preserve Timestamps={settings['preserve_timestamps']}, "
+                            f"Keep Originals={settings['preserve_originals']}, "
+                            f"Recursive={settings.get('recursive', True)}, "
+                            f"Output directory={settings.get('output_dir', '')}"))
     
     def select_output_dir(self):
-        """Open dialog to select output directory"""
-        directory = filedialog.askdirectory(
-            title="Select Output Directory",
-            mustexist=False
-        )
+        """Open directory selection dialog for output"""
+        directory = filedialog.askdirectory()
         if directory:
-            old_dir = self.output_var.get()
             self.output_var.set(directory)
-            if hasattr(self, 'pending_files') and self.pending_files:
-                if old_dir:
-                    self.queue.put(('log', f"Output directory changed from '{old_dir}' to '{directory}'"))
-                else:
-                    self.queue.put(('log', f"Output directory set to '{directory}'"))
+            self.queue.put(('log', f"Output directory set to: {directory}"))
     
     def update_profile_list(self):
         """Update the profile dropdown with all available profiles"""
@@ -931,14 +890,10 @@ class WebPConverterGUI:
     
     def on_setting_changed(self, setting_name: str, value: bool):
         """Handle changes to boolean settings"""
-        if hasattr(self, 'pending_files') and self.pending_files:
-            self.queue.put(('log', f"{setting_name} {'enabled' if value else 'disabled'}"))
+        self.queue.put(('log', f"{setting_name} {'enabled' if value else 'disabled'}"))
     
     def on_name_option_changed(self, event=None):
         """Handle changes to filename prefix/suffix with debounce"""
-        if not hasattr(self, 'pending_files') or not self.pending_files:
-            return
-            
         # Cancel any pending preview update
         if self.preview_after_id:
             self.root.after_cancel(self.preview_after_id)

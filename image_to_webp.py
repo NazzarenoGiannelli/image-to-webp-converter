@@ -202,7 +202,7 @@ def convert_to_webp(input_path: str, output_path: Optional[str] = None,
     except Exception as e:
         return False, input_path, Exception(f"Unexpected error: {e}")
 
-def process_directory(directory_path: str, quality: int = 80, recursive: bool = True,
+def process_directory(directory_path: str, quality: int = 80, recursive: bool = False,
                      output_dir: Optional[str] = None, preserve_originals: bool = True,
                      copy_timestamps: bool = True, prefix: str = "", suffix: str = "") -> None:
     """
@@ -211,7 +211,7 @@ def process_directory(directory_path: str, quality: int = 80, recursive: bool = 
     Args:
         directory_path: Path to directory containing image files
         quality: Quality of WebP images (0-100)
-        recursive: Whether to process subdirectories
+        recursive: Whether to process subdirectories (default: False)
         output_dir: Custom output directory path
         preserve_originals: Whether to keep original files
         copy_timestamps: Whether to copy original file timestamps
