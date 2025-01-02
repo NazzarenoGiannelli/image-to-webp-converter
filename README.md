@@ -2,11 +2,11 @@
 
 ![Image to WebP Converter Screenshot](assets/screenshot.jpeg)
 
-A powerful Python application to convert PNG, JPG, and JPEG images to WebP format, featuring both a modern GUI and command-line interface. Includes advanced features like profile management, parallel processing, and resource optimization.
+A Python application to convert PNG, JPG, and JPEG images to WebP format, featuring both a modern GUI and command-line interface. Includes advanced features like profile management, parallel processing, and resource optimization.
 
 ## Features
 
-- **Multiple Format Support**: Converts PNG, JPG, and JPEG to WebP
+- **Multiple Format Support**: Converts PNG, JPG, GIF and other image formats to WebP
 - **Parallel Processing**: Fast conversion using multi-threading
 - **Profile Management**: Preset and custom conversion profiles
 - **Resource Management**:
