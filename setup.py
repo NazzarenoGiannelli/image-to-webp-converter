@@ -76,7 +76,7 @@ setup(
             "gui.py",
             base=base,
             icon="assets/logo-square.ico",
-            target_name="ImageToWebPConverter.exe",
+            target_name="image_to_webp_converter_win64.exe",
             shortcut_name="Image to WebP Converter",
             shortcut_dir="DesktopFolder"
         )
