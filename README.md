@@ -153,34 +153,74 @@ python image_to_webp.py ./photos --delete-originals
 - Preserve Timestamps: No
 - Preserve Originals: No
 
-## Examples
+## Usage Examples
 
-### Using Profiles
+### Basic Usage
 ```bash
-# List all profiles
-python image_to_webp.py --list-profiles
+# Convert a single image
+python image_to_webp.py image.jpg
 
-# Use web-optimized profile
-python image_to_webp.py images/ --profile web_optimized
+# Convert multiple images
+python image_to_webp.py folder/*.jpg
 
-# Create custom profile
-python image_to_webp.py images/ -q 85 --lossless --save-profile "my_profile"
+# Convert with specific quality
+python image_to_webp.py image.jpg -q 85
 
-# Use last settings
-python image_to_webp.py images/ --use-last
+# Convert recursively with lossless compression
+python image_to_webp.py folder/ -r --lossless
 ```
 
-### Advanced Conversion
-```bash
-# Recursive conversion with custom output
-python image_to_webp.py input_dir/ -r -o output_dir/
+### GUI Examples
+1. **Batch Conversion**:
+   - Drop multiple files into the interface
+   - Select quality: 85
+   - Enable "Preserve originals"
+   - Click "Convert"
 
-# High-quality conversion, delete originals
-python image_to_webp.py images/ --profile high_quality --delete-originals
+2. **Profile-based Conversion**:
+   - Select "High Quality" profile
+   - Drop files
+   - Click "Convert"
 
-# Custom quality with timestamp preservation
-python image_to_webp.py images/ -q 90 --preserve-timestamps
-```
+3. **Custom Settings**:
+   - Adjust quality slider
+   - Toggle lossless mode
+   - Enable recursive processing
+   - Save as new profile
+
+## Contributing
+
+We welcome contributions! Please see our [Contributing Guidelines](CONTRIBUTING.md) for details on how to:
+- Submit bug reports
+- Request features
+- Submit pull requests
+- Set up your development environment
+
+## License
+
+This project is licensed under the MIT License - see the [LICENSE](LICENSE) file for details.
+
+MIT License
+
+Copyright (c) 2025
+
+Permission is hereby granted, free of charge, to any person obtaining a copy
+of this software and associated documentation files (the "Software"), to deal
+in the Software without restriction, including without limitation the rights
+to use, copy, modify, merge, publish, distribute, sublicense, and/or sell
+copies of the Software, and to permit persons to whom the Software is
+furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all
+copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
+OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
+SOFTWARE.
 
 ## Windows Executable
 
@@ -251,11 +291,3 @@ The application includes comprehensive error checking for:
 - Progress tracking in both GUI and CLI
 - Detailed logging helps track any issues
 - Original directory structure is maintained when using custom output directory
-
-## Contributing
-
-Contributions are welcome! Please feel free to submit a Pull Request.
-
-## License
-
-This project is licensed under the MIT License - see the LICENSE file for details.
